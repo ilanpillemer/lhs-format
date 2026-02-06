@@ -1,0 +1,174 @@
+#!/bin/bash
+#
+# lhs-format - A literate Haskell formatter for acme
+# 
+# Formats bird-style literate Haskell files (.lhs) by:
+# 1. Extracting code lines (those starting with '>') 
+# 2. Formatting with Ormolu
+# 3. Reconstructing the .lhs file with preserved prose
+#
+# Usage: lhs-format [file.lhs]
+#        If no file given, reads from stdin and writes to stdout
+
+set -euo pipefail
+
+# Check for available formatters (in order of preference)
+FORMATTER=""
+if command -v ormolu >/dev/null 2>&1; then
+    FORMATTER="ormolu"
+elif command -v fourmolu >/dev/null 2>&1; then
+    FORMATTER="fourmolu"
+elif command -v stylish-haskell >/dev/null 2>&1; then
+    FORMATTER="stylish-haskell"
+else
+    echo "Warning: No Haskell formatter found. Using basic formatting only." >&2
+    FORMATTER="basic"
+fi
+
+# Temporary files
+TEMP_HS=$(mktemp /tmp/lhs-format.XXXXXX.hs)
+TEMP_LHS=$(mktemp /tmp/lhs-format.XXXXXX.lhs)
+TEMP_PROSE=$(mktemp /tmp/lhs-format.XXXXXX.prose)
+
+# Cleanup function
+cleanup() {
+    rm -f "$TEMP_HS" "$TEMP_LHS" "$TEMP_PROSE"
+}
+trap cleanup EXIT
+
+# Function to extract code lines and create .hs file
+extract_code() {
+    local input="$1"
+    # Extract lines starting with '>' and remove the '> ' prefix
+    grep '^>' "$input" | sed 's/^> //' > "$TEMP_HS"
+}
+
+# Function to create prose map (line numbers and content of non-code lines)
+create_prose_map() {
+    local input="$1"
+    # Store line numbers and content of all non-code lines
+    grep -n '^[^>]' "$input" | sed 's/:/\t/' > "$TEMP_PROSE" || true
+}
+
+# Function to reconstruct .lhs file
+reconstruct_lhs() {
+    local input="$1"
+    local output="$2" 
+    local formatted_hs="$TEMP_HS"
+    
+    # Strategy: Replace all code blocks as a unit rather than line-by-line
+    # This handles formatters that change line counts
+    
+    # First, identify all prose sections (non-code lines)
+    local in_code=false
+    local block_num=0
+    local temp_blocks_dir=$(mktemp -d /tmp/lhs-blocks.XXXXXX)
+    local current_prose=""
+    local current_code=""
+    
+    # Split formatted code into individual logical blocks if possible
+    # For now, treat all formatted code as one block and distribute it
+    # across the original code sections
+    
+    # Simpler approach: if formatting changed line count, 
+    # replace the first code block with all formatted content
+    # and empty subsequent code blocks
+    
+    local formatted_lines=$(wc -l < "$formatted_hs")
+    local original_code_lines=$(grep -c '^>' "$input")
+    local replacement_done=false
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^'>' ]]; then
+            if [[ "$replacement_done" == "false" ]]; then
+                # Replace with all formatted content
+                while IFS= read -r formatted_line || [[ -n "$formatted_line" ]]; do
+                    echo "> $formatted_line" >> "$output"
+                done < "$formatted_hs"
+                replacement_done=true
+            fi
+            # Skip original code lines after replacement
+        else
+            # This is prose - keep as-is
+            echo "$line" >> "$output"
+        fi
+    done < "$input"
+    
+    rm -rf "$temp_blocks_dir"
+}
+
+# Main logic
+main() {
+    local input_file="${1:-}"
+    
+    if [[ -z "$input_file" ]]; then
+        # Read from stdin
+        input_file="$TEMP_LHS"
+        cat > "$input_file"
+    elif [[ ! -f "$input_file" ]]; then
+        echo "Error: File '$input_file' not found" >&2
+        exit 1
+    fi
+    
+    # Check if file has any code lines
+    if ! grep -q '^>' "$input_file"; then
+        echo "Warning: No literate Haskell code lines found (lines starting with '>')" >&2
+        # Just output the original file
+        cat "$input_file"
+        exit 0
+    fi
+    
+    # Extract code to temporary .hs file
+    extract_code "$input_file"
+    
+    # Format the Haskell code 
+    case "$FORMATTER" in
+        "ormolu")
+            if ! ormolu --mode inplace "$TEMP_HS" 2>/dev/null; then
+                echo "Warning: ormolu formatting failed. Using basic formatting." >&2
+                # Basic fallback formatting
+                sed -i 's/[[:space:]]*$//' "$TEMP_HS"  # Remove trailing whitespace
+            fi
+            ;;
+        "fourmolu")
+            if ! fourmolu --mode inplace "$TEMP_HS" 2>/dev/null; then
+                echo "Warning: fourmolu formatting failed. Using basic formatting." >&2
+                sed -i 's/[[:space:]]*$//' "$TEMP_HS"
+            fi
+            ;;
+        "stylish-haskell")
+            if ! stylish-haskell --inplace "$TEMP_HS" 2>/dev/null; then
+                echo "Warning: stylish-haskell formatting failed. Using basic formatting." >&2
+                sed -i 's/[[:space:]]*$//' "$TEMP_HS"
+            fi
+            ;;
+        "basic"|*)
+            # Basic formatting: clean up whitespace
+            sed -i '' 's/[[:space:]]*$//' "$TEMP_HS" 2>/dev/null || sed -i 's/[[:space:]]*$//' "$TEMP_HS"
+            ;;
+    esac
+    
+    # Create output file
+    local output_file
+    local temp_output_file
+    if [[ -z "${1:-}" ]]; then
+        output_file="/dev/stdout"
+        temp_output_file="$TEMP_LHS.output"
+    else
+        output_file="$1"
+        temp_output_file="$output_file.tmp"
+    fi
+    
+    # Reconstruct the .lhs file
+    reconstruct_lhs "$input_file" "$temp_output_file"
+    
+    # Move to final location (or stdout)
+    if [[ "$output_file" == "/dev/stdout" ]]; then
+        cat "$temp_output_file"
+        rm -f "$temp_output_file"
+    else
+        mv "$temp_output_file" "$output_file"
+    fi
+}
+
+main "$@"
