@@ -12,18 +12,12 @@
 
 set -euo pipefail
 
-# Check for available formatters (in order of preference)
-FORMATTER=""
-if command -v ormolu >/dev/null 2>&1; then
-    FORMATTER="ormolu"
-elif command -v fourmolu >/dev/null 2>&1; then
-    FORMATTER="fourmolu"
-elif command -v stylish-haskell >/dev/null 2>&1; then
-    FORMATTER="stylish-haskell"
-else
-    echo "Warning: No Haskell formatter found. Using basic formatting only." >&2
-    FORMATTER="basic"
-fi
+# For literate Haskell, we must use basic formatting only.
+# Full Haskell formatters (ormolu, fourmolu, stylish-haskell) need complete
+# code context and will reorder declarations, which destroys the narrative
+# structure of literate programming where code is intentionally interleaved
+# with prose explanations.
+FORMATTER="basic"
 
 # Temporary files
 TEMP_HS=$(mktemp /tmp/lhs-format.XXXXXX.hs)
@@ -39,8 +33,9 @@ trap cleanup EXIT
 # Function to extract code lines and create .hs file
 extract_code() {
     local input="$1"
-    # Extract lines starting with '>' and remove the '> ' prefix
-    grep '^>' "$input" | sed 's/^> //' > "$TEMP_HS"
+    # Extract lines starting with '>' and remove the '>' then optionally one space
+    # This handles both "> code" and ">" (empty line) correctly
+    grep '^>' "$input" | sed 's/^>//; s/^ //' > "$TEMP_HS"
 }
 
 # Function to create prose map (line numbers and content of non-code lines)
@@ -111,32 +106,9 @@ main() {
     # Extract code to temporary .hs file
     extract_code "$input_file"
     
-    # Format the Haskell code 
-    case "$FORMATTER" in
-        "ormolu")
-            if ! ormolu --mode inplace "$TEMP_HS" 2>/dev/null; then
-                echo "Warning: ormolu formatting failed. Using basic formatting." >&2
-                # Basic fallback formatting
-                sed -i 's/[[:space:]]*$//' "$TEMP_HS"  # Remove trailing whitespace
-            fi
-            ;;
-        "fourmolu")
-            if ! fourmolu --mode inplace "$TEMP_HS" 2>/dev/null; then
-                echo "Warning: fourmolu formatting failed. Using basic formatting." >&2
-                sed -i 's/[[:space:]]*$//' "$TEMP_HS"
-            fi
-            ;;
-        "stylish-haskell")
-            if ! stylish-haskell --inplace "$TEMP_HS" 2>/dev/null; then
-                echo "Warning: stylish-haskell formatting failed. Using basic formatting." >&2
-                sed -i 's/[[:space:]]*$//' "$TEMP_HS"
-            fi
-            ;;
-        "basic"|*)
-            # Basic formatting: clean up whitespace
-            sed -i '' 's/[[:space:]]*$//' "$TEMP_HS" 2>/dev/null || sed -i 's/[[:space:]]*$//' "$TEMP_HS"
-            ;;
-    esac
+    # Apply basic formatting only
+    # Remove trailing whitespace while preserving indentation
+    sed -i '' 's/[[:space:]]*$//' "$TEMP_HS" 2>/dev/null || sed -i 's/[[:space:]]*$//' "$TEMP_HS"
     
     # Create output file
     local output_file
