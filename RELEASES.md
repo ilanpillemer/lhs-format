@@ -1,5 +1,24 @@
 # Releases
 
+## v1.2.0 (2026-02-06)
+
+### IT DOESN'T WORK
+
+This release documents the complete failure of this formatter.
+
+**Status**: Does not work. Do not use.
+
+**Problem**: After multiple attempts to fix the formatter, it became clear that the tool cannot achieve its stated goal. The formatter was stripped down to do nothing but preserve whitespace, making it completely useless.
+
+**Why It Failed**:
+- Full Haskell formatters (fourmolu/ormolu) reorder code declarations, destroying literate programming narrative structure
+- Basic formatting (whitespace cleanup only) is pointless
+- There is no middle ground that both formats Haskell code properly AND preserves literate structure
+
+**Conclusion**: This tool sucks and doesn't work. Use manual formatting or don't write literate Haskell.
+
+---
+
 ## v1.1.0 (2026-02-06)
 
 ### Major Bug Fix: Structure Preservation

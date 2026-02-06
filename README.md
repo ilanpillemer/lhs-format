@@ -1,12 +1,23 @@
 # lhs-format
 
-A literate Haskell formatter for the acme text editor.
+## ⚠️ THIS DOES NOT WORK ⚠️
 
-## Description
+This formatter is currently broken and does not perform any useful formatting.
 
-`lhs-format` is a command-line tool that formats bird-style literate Haskell (.lhs) files while preserving all prose text exactly as written. It extracts code lines (those starting with `>`), applies professional Haskell formatting, and reconstructs the literate file with properly formatted code.
+## Why It Doesn't Work
 
-The formatter integrates seamlessly with the acme text editor through acmego, providing automatic formatting on file save.
+The fundamental problem: literate Haskell formatters need complete code context to work properly, but literate programs intentionally scatter code throughout prose in a narrative order. When you extract just the code and format it:
+
+1. **Full formatters (fourmolu/ormolu) reorder declarations** - They move imports to the top, reorder functions alphabetically, and generally destroy the carefully crafted narrative flow that is the entire point of literate programming
+2. **Basic formatting does nothing** - Just removing trailing whitespace is pointless
+
+## The Contradiction
+
+You cannot have both:
+- Proper Haskell code formatting (which needs context and reorders things)
+- Literate programming structure (which requires narrative ordering)
+
+This tool fails at both.
 
 ## Features
 
