@@ -56,45 +56,35 @@ reconstruct_lhs() {
     local output="$2" 
     local formatted_hs="$TEMP_HS"
     
-    # Strategy: Replace all code blocks as a unit rather than line-by-line
-    # This handles formatters that change line counts
+    # Strategy: Preserve literate programming structure by keeping code/prose interleaved
+    # Map formatted code lines back to their original positions
     
-    # First, identify all prose sections (non-code lines)
-    local in_code=false
-    local block_num=0
-    local temp_blocks_dir=$(mktemp -d /tmp/lhs-blocks.XXXXXX)
-    local current_prose=""
-    local current_code=""
+    # Create array of formatted code lines
+    local -a formatted_lines=()
+    local formatted_index=0
+    while IFS= read -r line; do
+        formatted_lines[$formatted_index]="$line"
+        ((formatted_index++))
+    done < "$formatted_hs"
     
-    # Split formatted code into individual logical blocks if possible
-    # For now, treat all formatted code as one block and distribute it
-    # across the original code sections
-    
-    # Simpler approach: if formatting changed line count, 
-    # replace the first code block with all formatted content
-    # and empty subsequent code blocks
-    
-    local formatted_lines=$(wc -l < "$formatted_hs")
-    local original_code_lines=$(grep -c '^>' "$input")
-    local replacement_done=false
+    # Reconstruct the file, replacing code lines with formatted versions
+    local current_formatted_line=0
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ ^'>' ]]; then
-            if [[ "$replacement_done" == "false" ]]; then
-                # Replace with all formatted content
-                while IFS= read -r formatted_line || [[ -n "$formatted_line" ]]; do
-                    echo "> $formatted_line" >> "$output"
-                done < "$formatted_hs"
-                replacement_done=true
+            # This is a code line - replace with formatted version if available
+            if [[ $current_formatted_line -lt ${#formatted_lines[@]} ]]; then
+                echo "> ${formatted_lines[$current_formatted_line]}" >> "$output"
+                ((current_formatted_line++))
+            else
+                # No more formatted lines available, keep original
+                echo "$line" >> "$output"
             fi
-            # Skip original code lines after replacement
         else
             # This is prose - keep as-is
             echo "$line" >> "$output"
         fi
     done < "$input"
-    
-    rm -rf "$temp_blocks_dir"
 }
 
 # Main logic
